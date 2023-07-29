@@ -1,4 +1,4 @@
-name = "BetaBinomialModel"
+name = "BetaBinomialModels"
 uuid = "572eee72-4208-411a-bb6b-200baca0b762"
 authors = ["kshedden <kshedden@umich.edu>"]
 version = "0.1.0"

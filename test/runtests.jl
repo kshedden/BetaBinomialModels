@@ -1,4 +1,4 @@
-using BetaBinomialModel
+using BetaBinomialModels
 using Test
 using FiniteDifferences
 using Distributions

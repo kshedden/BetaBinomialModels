@@ -1,10 +1,10 @@
-module BetaBinomialModel
+module BetaBinomialModels
 
     import StatsAPI: fit, vcov, coef
 
     export BetaBinomModel, vcov, coef, fit
 
-    export BetaBinomSeq, moments
+    export BetaBinomSeq
 
     include("betabinom.jl")
     include("fuse.jl")

@@ -35,9 +35,9 @@ end
             bb = BetaBinomModel(success, total)
 
             # Check the gradient
-            f = x -> BetaBinomialModel.loglike(bb, x[1], x[2], lalpha0, lbeta0, lam)
+            f = x -> BetaBinomialModels.loglike(bb, x[1], x[2], lalpha0, lbeta0, lam)
             ngrad = grad(central_fdm(5, 1), f, x)[1]
-            BetaBinomialModel.score!(bb, agrad, lalpha, lbeta, lalpha0, lbeta0, lam)
+            BetaBinomialModels.score!(bb, agrad, lalpha, lbeta, lalpha0, lbeta0, lam)
             @test isapprox(ngrad, agrad, rtol = 1e-7, atol = 1e-7)
 
             # Check the diagonal of the Hessian
@@ -51,7 +51,7 @@ end
             f1 = y -> grad(central_fdm(5, 1), z -> f([z, y]), x[1])[1]
             nhess[1, 2] = grad(central_fdm(5, 1), f1, x[2])[1]
             nhess[2, 1] = nhess[1, 2]
-            BetaBinomialModel.hess!(bb, agrad, H, lalpha, lbeta, lalpha0, lbeta0, lam)
+            BetaBinomialModels.hess!(bb, agrad, H, lalpha, lbeta, lalpha0, lbeta0, lam)
             @test isapprox(H, nhess, rtol = 1e-5, atol = 1e-5)
         end
     end
