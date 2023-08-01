@@ -11,8 +11,6 @@ mutable struct BetaBinomSeq{T<:Integer}
     # An indicator that the MLE optimization converged
     converged::Bool
 
-    bs::Int64
-
     # The penalty parameter for the fused lasso
     fuse_mean_wt
     fuse_icc_wt
@@ -27,16 +25,15 @@ mutable struct BetaBinomSeq{T<:Integer}
 end
 
 function BetaBinomSeq(success::AbstractVector, total::AbstractVector;
-                      fuse_mean_wt=0.0, fuse_icc_wt=0.0, bs=2)
+                      fuse_mean_wt=0.0, fuse_icc_wt=0.0)
     @assert length(success) == length(total)
     n = length(total)
-    m = div(n, bs)
-    logit_mean = zeros(m)
-    logit_icc = zeros(m)
-    logit_mean_u = zeros(m)
-    logit_icc_u = zeros(m)
+    logit_mean = zeros(n)
+    logit_icc = zeros(n)
+    logit_mean_u = zeros(n)
+    logit_icc_u = zeros(n)
 
-    return BetaBinomSeq(success, total, false, bs, fuse_mean_wt, fuse_icc_wt,
+    return BetaBinomSeq(success, total, false, fuse_mean_wt, fuse_icc_wt,
                         logit_mean, logit_icc, logit_mean_u, logit_icc_u)
 end
 
@@ -45,8 +42,8 @@ logit(x) = log(x / (1 - x))
 invlogit(x) = 1 / (1 + exp(-x))
 
 function loglike_single(
-    success::Vector{T},
-    total::Vector{T},
+    success::T,
+    total::T,
     logit_mean0::Float64,
     logit_icc0::Float64,
     par::Vector{Float64},
@@ -61,17 +58,14 @@ function loglike_single(
         return -Inf
     end
 
-    ll = 0.0
-    for i in eachindex(success)
-        ll += logabsgamma(success[i] + alpha)[1] + logabsgamma(total[i] - success[i] + beta)[1] +
+    ll = logabsgamma(success + alpha)[1] + logabsgamma(total - success + beta)[1] +
                 logabsgamma(alpha + beta)[1]
-        ll -= logabsgamma(total[i] + alpha + beta)[1] + logabsgamma(alpha)[1] + logabsgamma(beta)[1]
-    end
+    ll -= logabsgamma(total + alpha + beta)[1] + logabsgamma(alpha)[1] + logabsgamma(beta)[1]
 
     ll -= rho * (par[1] - logit_mean0)^2 / 2
     ll -= rho * (par[2] - logit_icc0)^2 / 2
 
-    ee = 0.1 # TODO how to set this?
+    ee = 0.1 # TODO how to set this? needs to agree with score_single
     ll -= ee * par[1]^2 / 2
     ll -= ee * par[2]^2 / 2
 
@@ -79,8 +73,8 @@ function loglike_single(
 end
 
 function score_single!(
-    success::Vector{T},
-    total::Vector{T},
+    success::T,
+    total::T,
     logit_mean0::Float64,
     logit_icc0::Float64,
     par::Vector{Float64},
@@ -99,15 +93,12 @@ function score_single!(
     end
 
     # partial L / partial (alpha, beta)
-    G .= 0
-    for i in eachindex(total)
-        dab = digamma(alpha + beta)
-        dnab = digamma(total[i] + alpha + beta)
-        G[1] += digamma(success[i] + alpha) + dab - dnab - digamma(alpha)
-        G[2] += digamma(total[i] - success[i] + beta) + dab - dnab - digamma(beta)
-    end
+    dab = digamma(alpha + beta)
+    dnab = digamma(total + alpha + beta)
+    G[1] = digamma(success + alpha) + dab - dnab - digamma(alpha)
+    G[2] = digamma(total - success + beta) + dab - dnab - digamma(beta)
 
-    # partial (m, i) / partial (alpha, beta)
+    # The Jacobian partial (m, i) / partial (alpha, beta)
     H = zeros(2, 2)
     u = (alpha + beta)^2
     H[1, 1] = beta / u
@@ -125,12 +116,12 @@ function score_single!(
     G[1] -= rho * (par[1] - logit_mean0)
     G[2] -= rho * (par[2] - logit_icc0)
 
-    ee = 0.1
+    ee = 0.1 # Needs to agree with the ee parameter in loglike_singe.
     G[1] -= ee * par[1]
     G[2] -= ee * par[2]
 end
 
-function admm!(success::Vector{T}, total::Vector{T}, logit_mean::Float64, logit_icc::Float64,
+function admm!(success::T, total::T, logit_mean::Float64, logit_icc::Float64,
                par::Vector{Float64}, par1::Vector{Float64}, G::Vector{Float64},
                rho::Float64; step0::Float64=1.0, gtol::Float64=1e-5) where {T<:Integer}
 
@@ -144,7 +135,7 @@ function admm!(success::Vector{T}, total::Vector{T}, logit_mean::Float64, logit_
     return cnvrg, gnrm
 end
 
-function admm_step!(success::Vector{T}, total::Vector{T}, logit_mean0::Float64, logit_icc0::Float64,
+function admm_step!(success::T, total::T, logit_mean0::Float64, logit_icc0::Float64,
                     par::Vector{Float64}, par1::Vector{Float64}, G::Vector{Float64},
                     rho::Float64; step0::Float64=1.0, gtol::Float64=1e-5) where {T<:Integer}
 
@@ -170,7 +161,7 @@ end
 function gradstep_fuse(bb::BetaBinomSeq; step0::Float64=1.0, rho::Float64=1.0,
                        gtol::Float64=1e-5)
 
-    (; success, total, logit_mean, logit_icc, logit_mean_u, logit_icc_u, bs) = bb
+    (; success, total, logit_mean, logit_icc, logit_mean_u, logit_icc_u) = bb
 
     n = length(total)
     G = zeros(2)
@@ -179,18 +170,15 @@ function gradstep_fuse(bb::BetaBinomSeq; step0::Float64=1.0, rho::Float64=1.0,
     par1 = zeros(2)
     nfail = 0
     maxg, avgg = 0.0, 0.0
-    m = div(n, bs)
 
     logit_mean0 = logit_mean - logit_mean_u
     logit_icc0 = logit_icc - logit_icc_u
 
-    for i in 1:div(n, bs)
+    for i in 1:n
 
         par[1] = logit_mean[i]
         par[2] = logit_icc[i]
-        i1 = (i-1)*bs + 1
-        i2 = i*bs
-        cnvrg, gnrm = admm!(success[i1:i2], total[i1:i2], logit_mean0[i], logit_icc0[i],
+        cnvrg, gnrm = admm!(success[i], total[i], logit_mean0[i], logit_icc0[i],
                             par, par1, G, rho; step0=step0, gtol=gtol)
         if cnvrg
             logit_mean[i], logit_icc[i] = par[1], par[2]
@@ -208,16 +196,14 @@ end
 
 function set_start!(bb::BetaBinomSeq)
 
-    (; success, total, logit_mean, logit_icc, bs) = bb
+    (; success, total, logit_mean, logit_icc) = bb
 
     logit_icc .= logit(0.5)
 
-    for j in eachindex(logit_mean)
-        i1 = (j-1)*bs + 1
-        i2 = j*bs
-        mm = (sum(success[i1:i2]) + 1) / (sum(total[i1:i2]) + 2)
+    for i in eachindex(logit_mean)
+        mm = (sum(success[i]) + 1) / (sum(total[i]) + 2)
         mm = clamp.(mm, 0.1, 0.9)
-        logit_mean[j] = logit(mm)
+        logit_mean[i] = logit(mm)
     end
 end
 
@@ -286,7 +272,7 @@ function coef(bb::BetaBinomSeq)
 end
 
 function fit(::Type{BetaBinomSeq}, success::AbstractVector, total::AbstractVector;
-             fuse_mean_wt::Real=1.0, fuse_icc_wt::Real=1.0, maxiter::Int=100, bs::Int=2,
+             fuse_mean_wt::Real=1.0, fuse_icc_wt::Real=1.0, maxiter::Int=100,
              rho0::Float64=1.0, rhofac::Float64=1.2, rhomax::Float64=10.0, gtol::Float64=1e-5,
              step0::Float64=1.0, verbose::Bool=false, start=nothing, dofit::Bool=true)
 
@@ -294,19 +280,14 @@ function fit(::Type{BetaBinomSeq}, success::AbstractVector, total::AbstractVecto
         error("Length of success $(length(success)) and total $(length(total)) differ.")
     end
 
-    if length(success) % bs != 0
-        error("Block size must evenly divide the sequence length")
-    end
-
     success = Vector{Int32}(success)
     total = Vector{Int32}(total)
 
     n = length(total)
-    bb = BetaBinomSeq(success, total; fuse_mean_wt=fuse_mean_wt, fuse_icc_wt=fuse_icc_wt, bs=bs)
+    bb = BetaBinomSeq(success, total; fuse_mean_wt=fuse_mean_wt, fuse_icc_wt=fuse_icc_wt)
 
     if !isnothing(start)
-        m = div(n, bs)
-        if (length(start[1]) != m) || (length(start[2]) != m)
+        if (length(start[1]) != n) || (length(start[2]) != n)
             error("Starting vectors have invalid lengths ($(length(start[1])), $(length(start[2])) != $m)")
         end
         bb.logit_mean = copy(start[1])
