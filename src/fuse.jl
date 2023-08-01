@@ -9,13 +9,14 @@ mutable struct BetaBinomSeq{T<:Integer}
     total::Vector{T}
 
     # An indicator that the MLE optimization converged
+    # TODO: not used
     converged::Bool
 
     # The penalty parameter for the fused lasso
-    fuse_mean_wt
-    fuse_icc_wt
+    fuse_mean_wt::Float64
+    fuse_icc_wt::Float64
 
-    # The mean and ICC corresponding to the shape parameters, on the logit scale
+    # The mean and ICC for each value, on the logit scale
     logit_mean::Vector{Float64}
     logit_icc::Vector{Float64}
 
@@ -53,6 +54,8 @@ function loglike_single(
     mean, icc = invlogit(logit_mean), invlogit(logit_icc)
     alpha, beta = moments_to_shape(mean, icc)
 
+    # Avoid gamma rounding errors
+    # TODO: maybe a better way to do this, e.g. logarithmic barriers?
     e = 0.01
     if mean < e || mean > 1-e || icc < e || icc > 1-e
         return -Inf
@@ -116,7 +119,7 @@ function score_single!(
     G[1] -= rho * (par[1] - logit_mean0)
     G[2] -= rho * (par[2] - logit_icc0)
 
-    ee = 0.1 # Needs to agree with the ee parameter in loglike_singe.
+    ee = 0.1 # Needs to agree with the ee parameter in loglike_single.
     G[1] -= ee * par[1]
     G[2] -= ee * par[2]
 end
@@ -263,7 +266,7 @@ function fit!(bb::BetaBinomSeq; start=nothing, maxiter::Int=10, rho0::Float64=1.
         fuse!(bb, rho)
 
         rho *= rhofac
-        rho = clamp(rho, 0, rhomax)
+        rho = clamp(rho, rho0, rhomax)
     end
 end
 
@@ -303,4 +306,3 @@ function fit(::Type{BetaBinomSeq}, success::AbstractVector, total::AbstractVecto
 
     return bb
 end
-
